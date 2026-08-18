@@ -1,0 +1,74 @@
+import { getCategories, getProducts } from "@/lib/api";
+import ProductCard from "@/components/ProductCard";
+import Filters from "@/components/Filters";
+import Link from "next/link";
+import type { ProductFilters } from "@/lib/types";
+
+export const dynamic = "force-dynamic"; // see app/page.tsx for why
+
+// Next.js's App Router gives every page access to the current URL's query
+// string as `searchParams` automatically — no manual URL parsing needed.
+// Because this is a Server Component, the filtering/sorting/pagination
+// query in lib/api.ts runs on the SERVER before any HTML reaches the
+// browser, which is what makes filtered product pages SSR-friendly and
+// crawlable (a search engine bot sees the actual filtered results, not an
+// empty shell waiting for client-side JS — unlike the old CRA site).
+export default async function ProductsPage({
+  searchParams,
+}: {
+  searchParams: Promise<ProductFilters>;
+}) {
+  const resolvedSearchParams = await searchParams;
+  const [categories, productList] = await Promise.all([
+    getCategories(),
+    getProducts(resolvedSearchParams),
+  ]);
+
+  const currentPage = Number(resolvedSearchParams.page ?? "1");
+
+  return (
+    <div>
+      <h1 className="mb-4 text-2xl font-bold text-gray-900">Shop</h1>
+
+      <Filters categories={categories} />
+
+      <p className="my-4 text-sm text-gray-500">
+        {productList.total_items} product{productList.total_items === 1 ? "" : "s"}
+      </p>
+
+      {productList.items.length === 0 ? (
+        <p className="py-12 text-center text-gray-500">
+          No products match these filters.
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
+          {productList.items.map((product) => (
+            <ProductCard key={product.id} product={product} />
+          ))}
+        </div>
+      )}
+
+      {productList.total_pages > 1 && (
+        <nav className="mt-8 flex justify-center gap-2">
+          {Array.from({ length: productList.total_pages }, (_, i) => i + 1).map((pageNum) => {
+            const params = new URLSearchParams(resolvedSearchParams as Record<string, string>);
+            params.set("page", String(pageNum));
+            return (
+              <Link
+                key={pageNum}
+                href={`/products?${params.toString()}`}
+                className={`rounded px-3 py-1 text-sm ${
+                  pageNum === currentPage
+                    ? "bg-brand text-white"
+                    : "border border-gray-300 text-gray-700 hover:border-brand"
+                }`}
+              >
+                {pageNum}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
+    </div>
+  );
+}
