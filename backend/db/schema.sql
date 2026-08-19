@@ -96,7 +96,13 @@ CREATE TABLE product_images (
     storage_path    TEXT NOT NULL,      -- path in S3/R2, e.g. products/123/original.jpg
     alt_text        TEXT NOT NULL DEFAULT '',
     display_order   INT NOT NULL DEFAULT 0,
-    is_primary      BOOLEAN NOT NULL DEFAULT false
+    is_primary      BOOLEAN NOT NULL DEFAULT false,
+    -- Added in Step 6 (image pipeline). Set only for images uploaded
+    -- through the processed pipeline (see backend/app/services/image_processing.py);
+    -- null for manually-pasted placeholder URLs from earlier testing.
+    width           INT,
+    height          INT,
+    blur_data_url   TEXT                -- tiny base64 blurred preview (LQIP), inlined directly in HTML
 );
 -- NOTE: we never store width/height-specific URLs here. The CDN image
 -- transform layer (Step 6) generates sized/format variants on the fly from

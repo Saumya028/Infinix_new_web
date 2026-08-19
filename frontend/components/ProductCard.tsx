@@ -1,16 +1,19 @@
 import Link from "next/link";
+import Image from "next/image";
 import type { ProductCard as ProductCardType } from "@/lib/types";
 import { formatPaise } from "@/lib/format";
 
 /**
- * NOTE on images: we're using a plain <img> tag here, not next/image, on
- * purpose FOR NOW. next/image needs a known, allow-listed remote domain
- * (see next.config.mjs) to optimize images — since we're still using
- * placeholder URLs from arbitrary sources, next/image would either error
- * or do nothing useful. Step 6 swaps this to next/image once real product
- * images are served from our own CDN domain — that single change is what
- * actually fixes the slow image loading from the old site (resizing,
- * WebP conversion, lazy loading all become automatic at that point).
+ * THIS is the file that actually fixes the slow-image problem you started
+ * this whole project to solve. Compare to how this looked before Step 6:
+ *   - Processed images (uploaded via the pipeline) now use next/image,
+ *     which automatically: generates a `srcset` so mobile devices download
+ *     the 200px variant instead of the 1200px one, lazy-loads anything
+ *     below the fold, and shows the tiny blurred LQIP instantly instead of
+ *     a blank box while the real image loads in.
+ *   - Legacy manually-pasted URLs (no processed variants exist for them)
+ *     still fall back to a plain <img> — there's nothing to optimize
+ *     without real generated sizes behind them.
  */
 export default function ProductCard({ product }: { product: ProductCardType }) {
   const priceLabel =
@@ -23,8 +26,23 @@ export default function ProductCard({ product }: { product: ProductCardType }) {
       href={`/products/${product.slug}`}
       className="group block overflow-hidden rounded-lg border border-gray-200 bg-white transition hover:shadow-md"
     >
-      <div className="aspect-square w-full overflow-hidden bg-gray-100">
-        {product.primary_image_url ? (
+      <div className="relative aspect-square w-full overflow-hidden bg-gray-100">
+        {product.primary_image_url && product.primary_image_is_processed ? (
+          <Image
+            src={product.primary_image_url}
+            alt={product.name}
+            fill
+            // Tells the browser roughly how big this image will actually
+            // render at different viewport widths, so it picks the right
+            // candidate from the srcset instead of guessing. Matches the
+            // grid's responsive column counts (see app/products/page.tsx:
+            // 2 cols on mobile, 3 on sm, 4 on md+).
+            sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, 25vw"
+            className="object-cover transition group-hover:scale-105"
+            placeholder={product.primary_image_blur ? "blur" : "empty"}
+            blurDataURL={product.primary_image_blur ?? undefined}
+          />
+        ) : product.primary_image_url ? (
           <img
             src={product.primary_image_url}
             alt={product.name}

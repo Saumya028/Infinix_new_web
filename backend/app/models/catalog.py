@@ -78,4 +78,16 @@ class ProductImage(Base):
     display_order = Column(Integer, nullable=False, default=0)
     is_primary = Column(Boolean, nullable=False, default=False)
 
+    # New in Step 6. When width/height are set, this image was processed
+    # through our upload pipeline (app/services/image_processing.py) and
+    # storage_path is a KEY PREFIX with real resized variants behind it
+    # (see admin_catalog.py's upload endpoint). When they're null, this row
+    # was created the old way (Step 4's manual "paste any URL" flow) and
+    # storage_path is a complete, ready-to-use URL as-is. Both are handled
+    # explicitly wherever images are read — see products.py and the
+    # frontend's ProductCard/detail page.
+    width = Column(Integer, nullable=True)
+    height = Column(Integer, nullable=True)
+    blur_data_url = Column(Text, nullable=True)
+
     product = relationship("Product", back_populates="images")

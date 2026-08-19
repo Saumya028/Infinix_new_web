@@ -21,6 +21,8 @@ export interface ProductCard {
   brand: string;
   category_id: number;
   primary_image_url: string | null;
+  primary_image_is_processed: boolean;
+  primary_image_blur: string | null;
   min_price_paise: number;
   max_price_paise: number;
   in_stock: boolean;
@@ -50,6 +52,10 @@ export interface ProductImage {
   id: number;
   variant_id: number | null;
   image_url: string;
+  is_processed: boolean;
+  width: number | null;
+  height: number | null;
+  blur_data_url: string | null;
   alt_text: string;
   display_order: number;
   is_primary: boolean;

@@ -48,11 +48,17 @@ class CategoryUpdate(BaseModel):
 class ProductImageOut(BaseModel):
     id: int
     variant_id: int | None
-    # NOTE: this is the raw storage_path for now (e.g. a placeholder URL you
-    # type in manually). Step 6 replaces this with real CDN-transformed URLs
-    # (resized/WebP) — the field name `image_url` won't need to change on
-    # the frontend when that happens, only what populates it here.
+    # For a PROCESSED image (uploaded via /upload-image): this is the BASE
+    # URL with no size suffix — the frontend's custom image loader appends
+    # "-{width}.webp" to request the right size (see frontend/lib/imageLoader.ts).
+    # For a manually-added placeholder image (Step 4's flow): this is a
+    # complete, ready-to-use URL as-is. `is_processed` tells the frontend
+    # which case it's looking at.
     image_url: str
+    is_processed: bool
+    width: int | None
+    height: int | None
+    blur_data_url: str | None
     alt_text: str
     display_order: int
     is_primary: bool
@@ -123,6 +129,8 @@ class ProductCardOut(BaseModel):
     brand: str
     category_id: int
     primary_image_url: str | None
+    primary_image_is_processed: bool
+    primary_image_blur: str | None
     min_price_paise: int
     max_price_paise: int
     in_stock: bool

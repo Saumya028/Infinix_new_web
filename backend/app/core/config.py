@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     STORAGE_ACCESS_KEY: str | None = None
     STORAGE_SECRET_KEY: str | None = None
     STORAGE_BUCKET: str = "infinix-assets"
+    STORAGE_REGION: str = "ap-south-1"  # find your project's actual region in Supabase's S3 settings page
     STORAGE_PUBLIC_BASE_URL: str | None = None  # CDN domain in front of the bucket
 
     # --- Cache ---

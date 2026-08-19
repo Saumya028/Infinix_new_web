@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Image from "next/image";
 import { getProductBySlug } from "@/lib/api";
 import VariantSelector from "@/components/VariantSelector";
 
@@ -19,8 +20,24 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
 
   return (
     <div className="grid gap-8 md:grid-cols-2">
-      <div className="aspect-square overflow-hidden rounded-lg bg-gray-100">
-        {primaryImage ? (
+      <div className="relative aspect-square overflow-hidden rounded-lg bg-gray-100">
+        {primaryImage && primaryImage.is_processed ? (
+          <Image
+            src={primaryImage.image_url}
+            alt={primaryImage.alt_text || product.name}
+            fill
+            sizes="(max-width: 768px) 100vw, 50vw"
+            className="object-cover"
+            placeholder={primaryImage.blur_data_url ? "blur" : "empty"}
+            blurDataURL={primaryImage.blur_data_url ?? undefined}
+            // priority: this is the single largest, most prominent image on
+            // the page (the PDP hero shot) — loading it eagerly instead of
+            // lazily is correct here, unlike grid thumbnails which SHOULD
+            // lazy-load. Also skips the blur-up transition on first paint,
+            // which is the right call for an above-the-fold hero image.
+            priority
+          />
+        ) : primaryImage ? (
           <img
             src={primaryImage.image_url}
             alt={primaryImage.alt_text || product.name}

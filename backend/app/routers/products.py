@@ -14,8 +14,20 @@ from app.schemas.catalog import (
     CategoryOut, ProductCardOut, ProductDetailOut, ProductListOut,
     ProductImageOut, ProductVariantOut,
 )
+from app.services.storage import public_url
 
 router = APIRouter()
+
+
+def _resolve_image_url(storage_path: str, is_processed: bool) -> str:
+    """
+    Processed images (uploaded via the Step 6 pipeline) store just a KEY
+    PREFIX in storage_path — this resolves it to the real public base URL.
+    Legacy/manual images (Step 4's paste-a-URL flow) already store a
+    complete URL, so we use it unchanged. See ProductImageOut's docstring
+    in schemas/catalog.py for the full explanation of this split.
+    """
+    return public_url(storage_path) if is_processed else storage_path
 
 
 @router.get("/categories", response_model=list[CategoryOut])
@@ -118,29 +130,32 @@ def list_products(
     # (one extra query total, NOT one query per product — avoiding the
     # classic "N+1 query" performance bug).
     product_ids = [p.id for p, _, _, _ in rows]
-    primary_images: dict[int, str] = {}
+    primary_images: dict[int, ProductImage] = {}
     if product_ids:
         img_rows = (
-            db.query(ProductImage.product_id, ProductImage.storage_path)
+            db.query(ProductImage)
             .filter(ProductImage.product_id.in_(product_ids), ProductImage.is_primary.is_(True))
             .all()
         )
-        primary_images = {pid: path for pid, path in img_rows}
+        primary_images = {img.product_id: img for img in img_rows}
 
-    items = [
-        ProductCardOut(
+    items = []
+    for p, min_price_paise, max_price_paise, total_stock in rows:
+        img = primary_images.get(p.id)
+        is_processed = img.width is not None if img else False
+        items.append(ProductCardOut(
             id=p.id,
             name=p.name,
             slug=p.slug,
             brand=p.brand,
             category_id=p.category_id,
-            primary_image_url=primary_images.get(p.id),
+            primary_image_url=_resolve_image_url(img.storage_path, is_processed) if img else None,
+            primary_image_is_processed=is_processed,
+            primary_image_blur=img.blur_data_url if img else None,
             min_price_paise=min_price_paise,
             max_price_paise=max_price_paise,
             in_stock=total_stock > 0,
-        )
-        for p, min_price_paise, max_price_paise, total_stock in rows
-    ]
+        ))
 
     return ProductListOut(items=items, page=page, page_size=page_size, total_items=total_items, total_pages=total_pages)
 
@@ -175,7 +190,10 @@ def get_product_detail(slug: str, db: Session = Depends(get_db)):
     )
     images = [
         ProductImageOut(
-            id=img.id, variant_id=img.variant_id, image_url=img.storage_path,
+            id=img.id, variant_id=img.variant_id,
+            image_url=_resolve_image_url(img.storage_path, img.width is not None),
+            is_processed=img.width is not None,
+            width=img.width, height=img.height, blur_data_url=img.blur_data_url,
             alt_text=img.alt_text, display_order=img.display_order, is_primary=img.is_primary,
         )
         for img in image_rows

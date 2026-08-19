@@ -2,12 +2,15 @@
 Every route in this file requires Depends(require_admin) — proven working
 in Step 3. A customer or delivery partner token gets 403 on all of these.
 """
+import uuid
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
+import botocore.exceptions
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import require_admin
 from app.models.catalog import Category, Product, ProductImage, ProductVariant
@@ -18,6 +21,8 @@ from app.schemas.catalog import (
     InventoryBatchCreate, ProductCreate, ProductImageCreate, ProductImageOut,
     ProductUpdate, ProductVariantCreate, ProductVariantOut, ProductVariantUpdate,
 )
+from app.services.image_processing import BREAKPOINTS, InvalidImageError, process_image
+from app.services.storage import delete_object, public_url, upload_bytes
 
 router = APIRouter(dependencies=[Depends(require_admin)])
 # Passing the dependency at the ROUTER level (not on every single function)
@@ -200,32 +205,123 @@ def add_inventory_batch(variant_id: int, payload: InventoryBatchCreate, db: Sess
     return {"id": batch.id, "message": f"Added {payload.quantity} units to stock"}
 
 
-# ---------- Images (placeholder storage — real upload pipeline in Step 6) ----------
+# ---------- Images ----------
+
+@router.post("/products/{product_id}/upload-image", response_model=ProductImageOut, status_code=201)
+async def upload_product_image(
+    product_id: int,
+    file: UploadFile = File(...),
+    variant_id: int | None = Form(default=None),
+    alt_text: str = Form(default=""),
+    is_primary: bool = Form(default=False),
+    db: Session = Depends(get_db),
+):
+    """
+    THE core route for Step 6. Accepts a real image file (multipart/
+    form-data, not JSON — files can't go in a JSON body), runs it through
+    our resize/WebP/blur pipeline, uploads every generated size to Supabase
+    Storage, and saves one ProductImage row referencing all of them via a
+    shared key prefix.
+
+    Why multipart form fields (Form(...)) instead of a JSON body for the
+    non-file fields: an HTTP request can only have ONE body, and a file
+    upload's body IS the multipart form — so variant_id/alt_text/is_primary
+    have to ride along as form fields, not JSON, in the same request.
+    """
+    if not db.query(Product).filter(Product.id == product_id).first():
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    if file.content_type not in ("image/jpeg", "image/png", "image/webp"):
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, or WebP files are accepted")
+
+    raw_bytes = await file.read()
+
+    try:
+        result = process_image(raw_bytes)
+    except InvalidImageError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # A random key prefix (not the filename!) avoids two problems: filename
+    # collisions between different admins uploading "photo.jpg", and
+    # anyone guessing/enumerating other products' image URLs.
+    key_prefix = f"products/{product_id}/{uuid.uuid4().hex}"
+    try:
+        for width, webp_bytes in result["variants"].items():
+            upload_bytes(f"{key_prefix}-{width}.webp", webp_bytes, "image/webp")
+    except botocore.exceptions.ClientError as e:
+        # Turns a raw boto3/S3 failure into a clear, actionable message
+        # instead of an uncaught 500. The most common real causes: the
+        # bucket named in STORAGE_BUCKET doesn't actually exist yet in
+        # Supabase Storage, wrong STORAGE_ENDPOINT_URL/STORAGE_REGION, or
+        # invalid/expired access key credentials.
+        error_code = e.response.get("Error", {}).get("Code", "Unknown")
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Could not upload to storage (error: {error_code}). "
+                f"Check that the '{settings.STORAGE_BUCKET}' bucket exists "
+                "in Supabase Storage and that your STORAGE_* credentials "
+                "in .env are correct."
+            ),
+        ) from e
+    except botocore.exceptions.EndpointConnectionError as e:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not reach the storage endpoint. Check STORAGE_ENDPOINT_URL in .env.",
+        ) from e
+
+    if is_primary:
+        db.query(ProductImage).filter(
+            ProductImage.product_id == product_id, ProductImage.is_primary.is_(True)
+        ).update({"is_primary": False})
+
+    image = ProductImage(
+        product_id=product_id,
+        variant_id=variant_id,
+        storage_path=key_prefix,  # a KEY PREFIX, not a full URL — see model comment
+        alt_text=alt_text,
+        is_primary=is_primary,
+        width=result["width"],
+        height=result["height"],
+        blur_data_url=result["blur_data_url"],
+    )
+    db.add(image)
+    _commit_or_400(db, "Invalid variant_id for this product")
+    db.refresh(image)
+
+    return ProductImageOut(
+        id=image.id, variant_id=image.variant_id,
+        image_url=public_url(image.storage_path), is_processed=True,
+        width=image.width, height=image.height, blur_data_url=image.blur_data_url,
+        alt_text=image.alt_text, display_order=image.display_order, is_primary=image.is_primary,
+    )
+
 
 @router.post("/products/{product_id}/images", response_model=ProductImageOut, status_code=201)
-def add_product_image(product_id: int, payload: ProductImageCreate, db: Session = Depends(get_db)):
+def add_product_image_by_url(product_id: int, payload: ProductImageCreate, db: Session = Depends(get_db)):
     """
-    For now, `storage_path` is just any image URL you paste in (e.g. a
-    placeholder from placehold.co, or a manually-uploaded Supabase Storage
-    link). Step 6 replaces manual URL entry with a real upload endpoint +
-    CDN transform pipeline — this schema/field won't need to change, only
-    how storage_path gets populated.
+    LEGACY / convenience route from Step 4 — paste any existing image URL
+    directly (e.g. a placeholder, or a URL you uploaded some other way).
+    Kept intentionally: useful for quick testing without a real file on
+    hand. Real product photography should go through the /upload-image
+    route above so it gets resized/optimized — this route stores the URL
+    exactly as given, unprocessed.
     """
     if not db.query(Product).filter(Product.id == product_id).first():
         raise HTTPException(status_code=404, detail="Product not found")
 
     if payload.is_primary:
-        # Only one primary image per product — unset any existing one first.
         db.query(ProductImage).filter(
             ProductImage.product_id == product_id, ProductImage.is_primary.is_(True)
         ).update({"is_primary": False})
 
     image = ProductImage(product_id=product_id, **payload.model_dump())
     db.add(image)
-    db.commit()
+    _commit_or_400(db, "Invalid variant_id for this product")
     db.refresh(image)
     return ProductImageOut(
-        id=image.id, variant_id=image.variant_id, image_url=image.storage_path,
+        id=image.id, variant_id=image.variant_id, image_url=image.storage_path, is_processed=False,
+        width=None, height=None, blur_data_url=None,
         alt_text=image.alt_text, display_order=image.display_order, is_primary=image.is_primary,
     )
 
@@ -235,5 +331,13 @@ def delete_product_image(image_id: int, db: Session = Depends(get_db)):
     image = db.query(ProductImage).filter(ProductImage.id == image_id).first()
     if image is None:
         raise HTTPException(status_code=404, detail="Image not found")
+
+    if image.width is not None:
+        # Processed image: also delete the actual files from storage, not
+        # just the DB row — otherwise orphaned objects accumulate in the
+        # bucket forever with no reference pointing at them.
+        for w in BREAKPOINTS:
+            delete_object(f"{image.storage_path}-{w}.webp")
+
     db.delete(image)
     db.commit()
