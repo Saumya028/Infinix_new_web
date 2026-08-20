@@ -58,3 +58,30 @@ export async function clientFetch<T>(
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
+
+/**
+ * Multipart file upload — used only by the admin "add product image"
+ * route (POST /admin/products/{id}/upload-image), which needs a real
+ * file in the request body, not JSON.
+ *
+ * Deliberately does NOT set a Content-Type header: the browser sets
+ * "multipart/form-data; boundary=..." itself from the FormData object,
+ * with a boundary string it generates. Setting Content-Type manually here
+ * would omit that boundary and the backend couldn't parse the body at all.
+ */
+export async function clientUpload<T>(path: string, formData: FormData): Promise<T> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE_URL}${path}`, { method: "POST", headers, body: formData });
+
+  if (!res.ok) {
+    const message = await res
+      .json()
+      .then((data) => data.detail ?? `Request failed (${res.status})`)
+      .catch(() => `Request failed (${res.status})`);
+    throw new ApiError(message, res.status);
+  }
+  return res.json() as Promise<T>;
+}

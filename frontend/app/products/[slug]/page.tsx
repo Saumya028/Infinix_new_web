@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Image from "next/image";
 import { getProductBySlug } from "@/lib/api";
+import { toThumbnailUrl } from "@/lib/imageUrl";
 import VariantSelector from "@/components/VariantSelector";
 
 export const dynamic = "force-dynamic"; // see app/page.tsx for why
@@ -62,7 +63,14 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
               id: product.id,
               name: product.name,
               slug: product.slug,
-              image_url: primaryImage?.image_url ?? null,
+              // Cart items (both the guest localStorage cart and the
+              // logged-in server cart — see backend/app/routers/cart.py)
+              // are rendered with a plain <img>, not next/image, so this
+              // needs to already be a complete, directly-loadable URL —
+              // not the bare base key primaryImage.image_url normally is.
+              image_url: primaryImage
+                ? toThumbnailUrl(primaryImage.image_url, primaryImage.is_processed)
+                : null,
             }}
           />
         </div>

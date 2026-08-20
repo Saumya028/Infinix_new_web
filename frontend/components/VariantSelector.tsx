@@ -27,9 +27,9 @@ export default function VariantSelector({
   variants: ProductVariant[];
   product: ProductSummary;
 }) {
-  const { addToCart } = useCart();
+  const { cart, addToCart, updateQuantity, removeItem } = useCart();
   const [selectedId, setSelectedId] = useState(variants[0]?.id);
-  const [status, setStatus] = useState<"idle" | "adding" | "added" | "error">("idle");
+  const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState("");
 
   const selected = variants.find((v) => v.id === selectedId) ?? variants[0];
@@ -38,8 +38,16 @@ export default function VariantSelector({
     return <p className="text-sm text-gray-500">This product has no purchasable variants yet.</p>;
   }
 
+  // The whole point of this: once an item is in the cart, the button
+  // should PERSISTENTLY reflect that (a "- 2 +" stepper), not flash
+  // "Added ✓" for a second and quietly revert back to "Add to Cart" as if
+  // nothing happened. cart.items is the single source of truth for this —
+  // no separate "was this just added" state needed.
+  const cartItem = cart.items.find((i) => i.variant_id === selected.id);
+  const quantityInCart = cartItem?.quantity ?? 0;
+
   async function handleAddToCart() {
-    setStatus("adding");
+    setIsBusy(true);
     setError("");
     try {
       await addToCart({
@@ -53,13 +61,31 @@ export default function VariantSelector({
         image_url: product.image_url,
         stock_quantity: selected.stock_quantity,
       });
-      setStatus("added");
-      // Reverts the button back to "Add to Cart" after a moment, so adding
-      // a second unit (or a different variant) doesn't feel stuck.
-      setTimeout(() => setStatus("idle"), 1500);
     } catch (err) {
-      setStatus("error");
       setError(err instanceof ApiError ? err.message : "Couldn't add this to your cart. Please try again.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function handleStep(delta: number) {
+    if (!cartItem) return;
+    const next = cartItem.quantity + delta;
+    setIsBusy(true);
+    setError("");
+    try {
+      if (next <= 0) {
+        // updateQuantity requires quantity >= 1 (see cart.py's
+        // CartItemUpdate schema) — going to zero means removing the line
+        // entirely, which is a different call.
+        await removeItem(cartItem.id);
+      } else {
+        await updateQuantity(cartItem.id, next);
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update the quantity.");
+    } finally {
+      setIsBusy(false);
     }
   }
 
@@ -71,7 +97,7 @@ export default function VariantSelector({
             key={v.id}
             onClick={() => {
               setSelectedId(v.id);
-              setStatus("idle");
+              setError("");
             }}
             disabled={v.stock_quantity <= 0}
             className={`rounded border px-3 py-2 text-sm transition ${
@@ -100,15 +126,37 @@ export default function VariantSelector({
 
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 
-      <button
-        onClick={handleAddToCart}
-        disabled={selected.stock_quantity <= 0 || status === "adding"}
-        className="mt-6 w-full rounded bg-brand py-3 text-sm font-medium text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        {status === "adding" ? "Adding..." : status === "added" ? "Added ✓" : "Add to Cart"}
-      </button>
+      {quantityInCart > 0 ? (
+        <div className="mt-6 flex items-center justify-between rounded border border-brand">
+          <button
+            onClick={() => handleStep(-1)}
+            disabled={isBusy}
+            aria-label="Decrease quantity"
+            className="px-5 py-3 text-lg font-medium text-brand hover:bg-brand/5 disabled:opacity-40"
+          >
+            −
+          </button>
+          <span className="text-sm font-semibold text-gray-900">{quantityInCart} in cart</span>
+          <button
+            onClick={() => handleStep(1)}
+            disabled={isBusy || quantityInCart >= selected.stock_quantity}
+            aria-label="Increase quantity"
+            className="px-5 py-3 text-lg font-medium text-brand hover:bg-brand/5 disabled:opacity-40"
+          >
+            +
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={handleAddToCart}
+          disabled={selected.stock_quantity <= 0 || isBusy}
+          className="mt-6 w-full rounded bg-brand py-3 text-sm font-medium text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {isBusy ? "Adding..." : "Add to Cart"}
+        </button>
+      )}
 
-      {status === "added" && (
+      {quantityInCart > 0 && (
         <p className="mt-2 text-center text-sm text-gray-500">
           <Link href="/cart" className="font-medium text-brand hover:underline">
             View cart

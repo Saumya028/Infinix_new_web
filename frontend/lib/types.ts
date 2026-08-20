@@ -168,6 +168,37 @@ export interface RazorpayOrderResponse {
   order_id: number;
 }
 
+// ---------- Admin catalog & inventory management ----------
+
+export interface AdminProductListItem {
+  id: number;
+  name: string;
+  slug: string;
+  category_id: number;
+  is_active: boolean;
+}
+
+export interface AdminProductDetail {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  brand: string;
+  category_id: number;
+  is_active: boolean;
+  variants: ProductVariant[];
+  images: ProductImage[];
+}
+
+export interface InventoryBatch {
+  id: number;
+  batch_code: string;
+  quantity: number;
+  manufactured_on: string | null;
+  expires_on: string | null;
+  warehouse_code: string;
+}
+
 // ---------- Admin order management (Step 8) ----------
 
 export interface OrderSummary {
