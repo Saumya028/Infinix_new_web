@@ -2,7 +2,7 @@ import enum
 
 from sqlalchemy import (
     BigInteger, Boolean, Column, Date, DateTime, Enum, ForeignKey,
-    Integer, String, Text, UniqueConstraint, func,
+    Integer, JSON, String, Text, UniqueConstraint, func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
@@ -13,7 +13,7 @@ from app.core.database import Base
 class Address(Base):
     __tablename__ = "addresses"
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
     user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
     label = Column(String, default="Home")
     contact_name = Column(String, nullable=False)
@@ -33,7 +33,7 @@ class InventoryBatch(Base):
     __tablename__ = "inventory_batches"
     __table_args__ = (UniqueConstraint("variant_id", "batch_code", "warehouse_code"),)
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
     variant_id = Column(BigInteger, ForeignKey("product_variants.id"), nullable=False)
     batch_code = Column(String, nullable=False)
     quantity = Column(Integer, nullable=False)
@@ -48,7 +48,7 @@ class InventoryBatch(Base):
 class Cart(Base):
     __tablename__ = "carts"
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
     user_id = Column(BigInteger, ForeignKey("users.id"), nullable=True)
     session_token = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -61,7 +61,7 @@ class CartItem(Base):
     __tablename__ = "cart_items"
     __table_args__ = (UniqueConstraint("cart_id", "variant_id"),)
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
     cart_id = Column(BigInteger, ForeignKey("carts.id"), nullable=False)
     variant_id = Column(BigInteger, ForeignKey("product_variants.id"), nullable=False)
     quantity = Column(Integer, nullable=False)
@@ -85,11 +85,15 @@ class OrderStatus(str, enum.Enum):
 class Order(Base):
     __tablename__ = "orders"
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
     order_number = Column(String, nullable=False, unique=True)
     user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
     status = Column(Enum(OrderStatus, name="order_status"), nullable=False, default=OrderStatus.pending_payment)
-    shipping_address = Column(JSONB, nullable=False)
+    # with_variant: same reasoning as catalog.py's ProductVariant.attributes
+    # — real Postgres/Supabase gets true JSONB, local SQLite testing falls
+    # back to plain JSON so `Base.metadata.create_all()` works without a
+    # live Postgres instance.
+    shipping_address = Column(JSONB().with_variant(JSON, "sqlite"), nullable=False)
     subtotal_paise = Column(BigInteger, nullable=False)
     discount_paise = Column(BigInteger, nullable=False, default=0)
     shipping_paise = Column(BigInteger, nullable=False, default=0)
@@ -103,13 +107,14 @@ class Order(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user = relationship("User", back_populates="orders", foreign_keys=[user_id])
+    delivery_partner = relationship("User", foreign_keys=[delivery_partner_id])
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
 
 
 class OrderItem(Base):
     __tablename__ = "order_items"
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
     order_id = Column(BigInteger, ForeignKey("orders.id"), nullable=False)
     variant_id = Column(BigInteger, ForeignKey("product_variants.id"), nullable=False)
     product_name = Column(String, nullable=False)

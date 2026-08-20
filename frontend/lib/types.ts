@@ -84,3 +84,143 @@ export interface ProductFilters {
   sort?: string;
   page?: string;
 }
+
+// ---------- Auth (mirrors backend/app/schemas/auth.py) ----------
+
+export interface User {
+  id: number;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  role: "customer" | "admin" | "ops" | "delivery_partner" | "support";
+}
+
+export interface TokenResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+}
+
+// ---------- Cart (mirrors backend/app/schemas/cart.py) ----------
+
+export interface CartItem {
+  id: number;
+  variant_id: number;
+  quantity: number;
+  product_id: number;
+  product_name: string;
+  product_slug: string;
+  variant_name: string;
+  unit_price_paise: number;
+  compare_at_paise: number | null;
+  image_url: string | null;
+  stock_quantity: number;
+}
+
+export interface CartState {
+  items: CartItem[];
+  subtotal_paise: number;
+}
+
+// ---------- Orders (mirrors backend/app/schemas/orders.py) ----------
+
+export interface ShippingAddress {
+  contact_name: string;
+  contact_phone: string;
+  line1: string;
+  line2?: string;
+  city: string;
+  state: string;
+  pincode: string;
+  save_address?: boolean;
+  label?: string;
+}
+
+export type OrderStatus =
+  | "pending_payment" | "confirmed" | "packed" | "out_for_delivery"
+  | "delivered" | "cancelled" | "return_requested" | "returned" | "refunded";
+
+export interface OrderItemDetail {
+  product_name: string;
+  variant_name: string;
+  unit_price_paise: number;
+  quantity: number;
+}
+
+export interface Order {
+  id: number;
+  order_number: string;
+  status: OrderStatus;
+  shipping_address: ShippingAddress;
+  subtotal_paise: number;
+  discount_paise: number;
+  shipping_paise: number;
+  total_paise: number;
+  payment_method: string;
+  items: OrderItemDetail[];
+}
+
+export interface RazorpayOrderResponse {
+  key_id: string;
+  razorpay_order_id: string;
+  amount_paise: number;
+  currency: string;
+  order_id: number;
+}
+
+// ---------- Admin order management (Step 8) ----------
+
+export interface OrderSummary {
+  id: number;
+  order_number: string;
+  status: OrderStatus;
+  total_paise: number;
+  payment_method: string;
+  customer_name: string;
+}
+
+export interface AdminOrderDetail extends Order {
+  customer_name: string;
+  customer_email: string | null;
+  customer_phone: string | null;
+  delivery_partner_id: number | null;
+  delivery_partner_name: string | null;
+}
+
+export interface DeliveryPartner {
+  id: number;
+  full_name: string;
+  phone: string | null;
+}
+
+export interface AnalyticsSummary {
+  total_orders: number;
+  total_revenue_paise: number;
+  avg_order_value_paise: number;
+  total_products: number;
+  total_customers: number;
+}
+
+export interface StatusCount {
+  status: OrderStatus;
+  count: number;
+}
+
+export interface TopProduct {
+  product_name: string;
+  units_sold: number;
+  revenue_paise: number;
+}
+
+export interface DailyTrendPoint {
+  day: string;
+  order_count: number;
+  revenue_paise: number;
+}
+
+export interface Analytics {
+  summary: AnalyticsSummary;
+  status_counts: StatusCount[];
+  top_products: TopProduct[];
+  daily_trend: DailyTrendPoint[];
+}

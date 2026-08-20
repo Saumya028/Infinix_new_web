@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.routers import admin_catalog, auth, products
+from app.routers import admin_catalog, auth, cart, delivery, orders, payment, products
 
 app = FastAPI(title="Infinix API", version="1.0.0")
 
@@ -30,6 +30,10 @@ app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(products.router, tags=["catalog (public)"])
 app.include_router(admin_catalog.router, prefix="/admin", tags=["catalog (admin)"])
 
-# Next routers (cart, orders, delivery) get included here in later steps, e.g.:
-# from app.routers import cart
-# app.include_router(cart.router, prefix="/cart", tags=["cart"])
+# Step 7: cart, orders, payment
+app.include_router(cart.router, tags=["cart"])
+app.include_router(orders.router, tags=["orders"])
+app.include_router(payment.router, tags=["payment"])
+
+# Step 8: delivery partner portal
+app.include_router(delivery.router, tags=["delivery"])

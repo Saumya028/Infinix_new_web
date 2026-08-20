@@ -43,6 +43,16 @@ class Settings(BaseSettings):
     # --- CORS ---
     FRONTEND_ORIGIN: str = "http://localhost:3000"
 
+    # --- Payments (Step 7) ---
+    # Test-mode keys start with "rzp_test_" — get them from the Razorpay
+    # Dashboard -> Settings -> API Keys. Optional here (None is a valid
+    # value) because a dev without payment keys should still be able to run
+    # the rest of the app (COD checkout works with no Razorpay config at
+    # all); payment.py checks for None and returns a clear error instead of
+    # crashing at import time.
+    RAZORPAY_KEY_ID: str | None = None
+    RAZORPAY_KEY_SECRET: str | None = None
+
     ENVIRONMENT: str = "development"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")

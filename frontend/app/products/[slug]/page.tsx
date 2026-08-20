@@ -56,7 +56,15 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         )}
 
         <div className="mt-6">
-          <VariantSelector variants={product.variants} />
+          <VariantSelector
+            variants={product.variants}
+            product={{
+              id: product.id,
+              name: product.name,
+              slug: product.slug,
+              image_url: primaryImage?.image_url ?? null,
+            }}
+          />
         </div>
       </div>
     </div>

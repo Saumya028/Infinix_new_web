@@ -2,19 +2,65 @@
 
 /**
  * "use client" needed here because this component holds interactive state
- * (useState for the selected variant) — the surrounding product page stays
- * a Server Component, only this piece is interactive.
+ * (useState for the selected variant, quantity, add-to-cart feedback) —
+ * the surrounding product page stays a Server Component, only this piece
+ * is interactive.
  */
 import { useState } from "react";
+import Link from "next/link";
 import type { ProductVariant } from "@/lib/types";
 import { formatPaise } from "@/lib/format";
+import { useCart } from "@/context/CartContext";
+import { ApiError } from "@/lib/clientApi";
 
-export default function VariantSelector({ variants }: { variants: ProductVariant[] }) {
+interface ProductSummary {
+  id: number;
+  name: string;
+  slug: string;
+  image_url: string | null;
+}
+
+export default function VariantSelector({
+  variants,
+  product,
+}: {
+  variants: ProductVariant[];
+  product: ProductSummary;
+}) {
+  const { addToCart } = useCart();
   const [selectedId, setSelectedId] = useState(variants[0]?.id);
+  const [status, setStatus] = useState<"idle" | "adding" | "added" | "error">("idle");
+  const [error, setError] = useState("");
+
   const selected = variants.find((v) => v.id === selectedId) ?? variants[0];
 
   if (!selected) {
     return <p className="text-sm text-gray-500">This product has no purchasable variants yet.</p>;
+  }
+
+  async function handleAddToCart() {
+    setStatus("adding");
+    setError("");
+    try {
+      await addToCart({
+        variant_id: selected.id,
+        product_id: product.id,
+        product_name: product.name,
+        product_slug: product.slug,
+        variant_name: selected.variant_name,
+        unit_price_paise: selected.price_paise,
+        compare_at_paise: selected.compare_at_paise,
+        image_url: product.image_url,
+        stock_quantity: selected.stock_quantity,
+      });
+      setStatus("added");
+      // Reverts the button back to "Add to Cart" after a moment, so adding
+      // a second unit (or a different variant) doesn't feel stuck.
+      setTimeout(() => setStatus("idle"), 1500);
+    } catch (err) {
+      setStatus("error");
+      setError(err instanceof ApiError ? err.message : "Couldn't add this to your cart. Please try again.");
+    }
   }
 
   return (
@@ -23,7 +69,10 @@ export default function VariantSelector({ variants }: { variants: ProductVariant
         {variants.map((v) => (
           <button
             key={v.id}
-            onClick={() => setSelectedId(v.id)}
+            onClick={() => {
+              setSelectedId(v.id);
+              setStatus("idle");
+            }}
             disabled={v.stock_quantity <= 0}
             className={`rounded border px-3 py-2 text-sm transition ${
               v.id === selectedId
@@ -49,15 +98,24 @@ export default function VariantSelector({ variants }: { variants: ProductVariant
         {selected.stock_quantity > 0 ? "In stock" : "Out of stock"}
       </p>
 
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+
       <button
-        disabled={selected.stock_quantity <= 0}
+        onClick={handleAddToCart}
+        disabled={selected.stock_quantity <= 0 || status === "adding"}
         className="mt-6 w-full rounded bg-brand py-3 text-sm font-medium text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {/* Cart logic lands in Step 7 — this button is wired up but doesn't
-           do anything yet on purpose, rather than half-building cart state
-           here before the cart API/schema exists. */}
-        Add to Cart
+        {status === "adding" ? "Adding..." : status === "added" ? "Added ✓" : "Add to Cart"}
       </button>
+
+      {status === "added" && (
+        <p className="mt-2 text-center text-sm text-gray-500">
+          <Link href="/cart" className="font-medium text-brand hover:underline">
+            View cart
+          </Link>{" "}
+          to check out.
+        </p>
+      )}
     </div>
   );
 }
