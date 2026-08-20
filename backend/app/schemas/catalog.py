@@ -110,6 +110,22 @@ class ProductVariantUpdate(BaseModel):
     is_active: bool | None = None
 
 
+class InventoryBatchOut(BaseModel):
+    """Lets the admin UI show what stock batches already exist for a
+    variant — otherwise 'stock_quantity: 0' is a dead end with no way to
+    see whether that's because no batch was ever added, or every batch
+    sold out."""
+    id: int
+    batch_code: str
+    quantity: int
+    manufactured_on: str | None
+    expires_on: str | None
+    warehouse_code: str
+
+    class Config:
+        from_attributes = True
+
+
 class InventoryBatchCreate(BaseModel):
     batch_code: str = Field(min_length=1, max_length=100)
     quantity: int = Field(ge=0)
@@ -176,3 +192,25 @@ class ProductUpdate(BaseModel):
     description: str | None = None
     brand: str | None = None
     is_active: bool | None = None
+
+
+class AdminProductDetailOut(BaseModel):
+    """
+    Like ProductDetailOut, but for the admin edit screen — includes
+    is_active on the product itself, and (unlike the public GET
+    /products/{slug}) includes inactive variants/images too, since an
+    admin editing a product needs to see (and be able to re-enable)
+    something they previously deactivated.
+    """
+    id: int
+    name: str
+    slug: str
+    description: str | None
+    brand: str
+    category_id: int
+    is_active: bool
+    variants: list[ProductVariantOut]
+    images: list[ProductImageOut]
+
+    class Config:
+        from_attributes = True

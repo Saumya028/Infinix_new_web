@@ -5,21 +5,20 @@ in Step 3. A customer or delivery partner token gets 403 on all of these.
 import uuid
 from datetime import date
 
-import botocore.exceptions
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import require_admin
 from app.models.catalog import Category, Product, ProductImage, ProductVariant
 from app.models.commerce import InventoryBatch
 from app.models.user import User
 from app.schemas.catalog import (
-    CategoryCreate, CategoryOut, CategoryUpdate,
-    InventoryBatchCreate, ProductCreate, ProductImageCreate, ProductImageOut,
-    ProductUpdate, ProductVariantCreate, ProductVariantOut, ProductVariantUpdate,
+    AdminProductDetailOut, CategoryCreate, CategoryOut, CategoryUpdate,
+    InventoryBatchCreate, InventoryBatchOut, ProductCreate, ProductImageCreate,
+    ProductImageOut, ProductUpdate, ProductVariantCreate, ProductVariantOut,
+    ProductVariantUpdate,
 )
 from app.services.image_processing import BREAKPOINTS, InvalidImageError, process_image
 from app.services.storage import delete_object, public_url, upload_bytes
@@ -50,6 +49,17 @@ def _commit_or_400(db: Session, error_detail: str = "This operation violates a d
 
 
 # ---------- Categories ----------
+
+@router.get("/categories", response_model=list[CategoryOut])
+def list_all_categories_for_admin(db: Session = Depends(get_db)):
+    """
+    Admin-only category listing (unlike the public GET /categories, this
+    includes inactive ones too) — used to populate the category dropdown
+    when creating/editing a product. Without this, there was previously no
+    way for the admin UI to know which category ids exist at all.
+    """
+    return db.query(Category).order_by(Category.display_order).all()
+
 
 @router.post("/categories", response_model=CategoryOut, status_code=201)
 def create_category(payload: CategoryCreate, db: Session = Depends(get_db)):
@@ -103,6 +113,68 @@ def list_all_products_for_admin(db: Session = Depends(get_db)):
         {"id": p.id, "name": p.name, "slug": p.slug, "category_id": p.category_id, "is_active": p.is_active}
         for p in products
     ]
+
+
+@router.get("/products/{product_id}", response_model=AdminProductDetailOut)
+def get_product_for_admin(product_id: int, db: Session = Depends(get_db)):
+    """
+    Full detail for the admin edit screen — unlike the public GET
+    /products/{slug}, this does NOT filter out inactive variants/images,
+    and works by numeric id (which is what the admin product list links
+    use) rather than slug.
+    """
+    from sqlalchemy import func
+
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    stock_subq = (
+        db.query(
+            InventoryBatch.variant_id.label("variant_id"),
+            func.sum(InventoryBatch.quantity).label("stock"),
+        )
+        .group_by(InventoryBatch.variant_id)
+        .subquery()
+    )
+    variant_rows = (
+        db.query(ProductVariant, func.coalesce(stock_subq.c.stock, 0).label("stock"))
+        .outerjoin(stock_subq, stock_subq.c.variant_id == ProductVariant.id)
+        .filter(ProductVariant.product_id == product.id)  # no is_active filter — admin sees everything
+        .order_by(ProductVariant.id)
+        .all()
+    )
+    variants = [
+        ProductVariantOut(
+            id=v.id, sku=v.sku, variant_name=v.variant_name, attributes=v.attributes,
+            price_paise=v.price_paise, compare_at_paise=v.compare_at_paise,
+            weight_grams=v.weight_grams, is_active=v.is_active, stock_quantity=stock,
+        )
+        for v, stock in variant_rows
+    ]
+
+    image_rows = (
+        db.query(ProductImage)
+        .filter(ProductImage.product_id == product.id)
+        .order_by(ProductImage.display_order)
+        .all()
+    )
+    images = [
+        ProductImageOut(
+            id=img.id, variant_id=img.variant_id,
+            image_url=public_url(img.storage_path) if img.width is not None else img.storage_path,
+            is_processed=img.width is not None,
+            width=img.width, height=img.height, blur_data_url=img.blur_data_url,
+            alt_text=img.alt_text, display_order=img.display_order, is_primary=img.is_primary,
+        )
+        for img in image_rows
+    ]
+
+    return AdminProductDetailOut(
+        id=product.id, name=product.name, slug=product.slug, description=product.description,
+        brand=product.brand, category_id=product.category_id, is_active=product.is_active,
+        variants=variants, images=images,
+    )
 
 
 @router.post("/products", response_model=dict, status_code=201)
@@ -180,6 +252,32 @@ def update_variant(variant_id: int, payload: ProductVariantUpdate, db: Session =
 
 # ---------- Inventory ----------
 
+@router.get("/variants/{variant_id}/inventory", response_model=list[InventoryBatchOut])
+def list_inventory_batches(variant_id: int, db: Session = Depends(get_db)):
+    """Shows every batch for a variant, most recently added first — this is
+    what actually answers 'why does this show 0 stock?': either this list
+    is empty (nothing was ever added) or every batch's quantity is 0
+    (everything sold, or was manually zeroed)."""
+    if not db.query(ProductVariant).filter(ProductVariant.id == variant_id).first():
+        raise HTTPException(status_code=404, detail="Variant not found")
+
+    batches = (
+        db.query(InventoryBatch)
+        .filter(InventoryBatch.variant_id == variant_id)
+        .order_by(InventoryBatch.id.desc())
+        .all()
+    )
+    return [
+        InventoryBatchOut(
+            id=b.id, batch_code=b.batch_code, quantity=b.quantity,
+            manufactured_on=b.manufactured_on.isoformat() if b.manufactured_on else None,
+            expires_on=b.expires_on.isoformat() if b.expires_on else None,
+            warehouse_code=b.warehouse_code,
+        )
+        for b in batches
+    ]
+
+
 @router.post("/variants/{variant_id}/inventory", status_code=201)
 def add_inventory_batch(variant_id: int, payload: InventoryBatchCreate, db: Session = Depends(get_db)):
     """
@@ -245,30 +343,8 @@ async def upload_product_image(
     # collisions between different admins uploading "photo.jpg", and
     # anyone guessing/enumerating other products' image URLs.
     key_prefix = f"products/{product_id}/{uuid.uuid4().hex}"
-    try:
-        for width, webp_bytes in result["variants"].items():
-            upload_bytes(f"{key_prefix}-{width}.webp", webp_bytes, "image/webp")
-    except botocore.exceptions.ClientError as e:
-        # Turns a raw boto3/S3 failure into a clear, actionable message
-        # instead of an uncaught 500. The most common real causes: the
-        # bucket named in STORAGE_BUCKET doesn't actually exist yet in
-        # Supabase Storage, wrong STORAGE_ENDPOINT_URL/STORAGE_REGION, or
-        # invalid/expired access key credentials.
-        error_code = e.response.get("Error", {}).get("Code", "Unknown")
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                f"Could not upload to storage (error: {error_code}). "
-                f"Check that the '{settings.STORAGE_BUCKET}' bucket exists "
-                "in Supabase Storage and that your STORAGE_* credentials "
-                "in .env are correct."
-            ),
-        ) from e
-    except botocore.exceptions.EndpointConnectionError as e:
-        raise HTTPException(
-            status_code=502,
-            detail="Could not reach the storage endpoint. Check STORAGE_ENDPOINT_URL in .env.",
-        ) from e
+    for width, webp_bytes in result["variants"].items():
+        upload_bytes(f"{key_prefix}-{width}.webp", webp_bytes, "image/webp")
 
     if is_primary:
         db.query(ProductImage).filter(

@@ -17,6 +17,7 @@ from app.models.catalog import Product, ProductImage, ProductVariant
 from app.models.commerce import Cart, CartItem, InventoryBatch
 from app.models.user import User
 from app.schemas.cart import CartItemAdd, CartItemOut, CartItemUpdate, CartOut
+from app.services.image_processing import BREAKPOINTS
 from app.services.storage import public_url
 
 router = APIRouter()
@@ -61,7 +62,25 @@ def _serialize_cart(db: Session, cart: Cart) -> CartOut:
         )
         image_url = None
         if image:
-            image_url = public_url(image.storage_path) if image.width is not None else image.storage_path
+            if image.width is not None:
+                # public_url(storage_path) is a KEY PREFIX, not a loadable
+                # file — the real objects in storage are
+                # "{prefix}-200.webp", "{prefix}-600.webp", "{prefix}-1200.webp"
+                # (see services/image_processing.py's BREAKPOINTS). The
+                # storefront's product cards/detail page go through
+                # next/image with a custom loader that appends this suffix
+                # automatically (frontend/lib/imageLoader.ts) — but the
+                # cart is rendered with a plain <img> tag (small, fixed-size
+                # thumbnails don't need next/image's responsive srcset
+                # machinery), so we have to append the suffix ourselves
+                # here instead. min(BREAKPOINTS) = smallest generated size,
+                # which is all a cart thumbnail ever needs.
+                image_url = f"{public_url(image.storage_path)}-{min(BREAKPOINTS)}.webp"
+            else:
+                # Legacy manually-pasted URL (Step 4's ProductImageCreate
+                # route) — storage_path IS already a complete, ready-to-use
+                # URL in this case, nothing to append.
+                image_url = image.storage_path
 
         stock = _variant_stock(db, variant.id)
         line_total = variant.price_paise * ci.quantity
