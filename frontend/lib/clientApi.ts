@@ -74,7 +74,24 @@ export async function clientUpload<T>(path: string, formData: FormData): Promise
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`${API_BASE_URL}${path}`, { method: "POST", headers, body: formData });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, { method: "POST", headers, body: formData });
+  } catch (err) {
+    // fetch() itself throwing (as opposed to returning a non-ok Response)
+    // means the request never got a real HTTP response at all — CORS
+    // block, connection reset, or (very commonly for uploads specifically)
+    // a hosting platform's reverse proxy rejecting the request body before
+    // it ever reaches FastAPI, e.g. for exceeding a body-size limit the
+    // proxy enforces. THIS is the case that used to show a generic,
+    // actively misleading "wrong file type" message — that message only
+    // made sense for a real 400 from our own validation, which this isn't.
+    throw new Error(
+      `Could not reach the server to upload this file. If the file is large, your ` +
+      `hosting platform may be rejecting it before it reaches the backend. Original error: ` +
+      `${err instanceof Error ? err.message : err}`,
+    );
+  }
 
   if (!res.ok) {
     const message = await res

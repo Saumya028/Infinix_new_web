@@ -70,7 +70,12 @@ export default function AdminProductsPage() {
   }
 
   function showError(err: unknown, fallback: string) {
-    setMessage({ type: "error", text: err instanceof ApiError ? err.message : fallback });
+    // Show the real message for ANY Error (both ApiError, a genuine
+    // backend response, and the plain Error clientUpload throws for a
+    // network-level failure carry a useful, specific message) — fallback
+    // is now only a last resort for something that isn't even an Error
+    // instance, which shouldn't normally happen.
+    setMessage({ type: "error", text: err instanceof Error ? err.message : fallback });
   }
 
   if (authLoading || !isAuthorized) {
@@ -363,10 +368,31 @@ function ImagesSection({
   const [file, setFile] = useState<File | null>(null);
   const [isPrimary, setIsPrimary] = useState(product.images.length === 0);
   const [uploading, setUploading] = useState(false);
+  const [sizeWarning, setSizeWarning] = useState("");
+
+  // Matches backend/app/services/image_processing.py's MAX_UPLOAD_BYTES —
+  // if this drifts out of sync, worst case is a slightly-too-generous
+  // client check (the backend's own limit still applies either way), so
+  // duplicating the number here is safe, just needs updating if that one
+  // ever changes.
+  const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const selected = e.target.files?.[0] ?? null;
+    setFile(selected);
+    if (selected && selected.size > MAX_UPLOAD_BYTES) {
+      setSizeWarning(
+        `This file is ${(selected.size / 1024 / 1024).toFixed(1)}MB — the limit is ` +
+        `${MAX_UPLOAD_BYTES / 1024 / 1024}MB. Please compress it or choose a smaller image.`,
+      );
+    } else {
+      setSizeWarning("");
+    }
+  }
 
   async function handleUpload(e: React.FormEvent) {
     e.preventDefault();
-    if (!file) return;
+    if (!file || sizeWarning) return;
     setUploading(true);
     try {
       const formData = new FormData();
@@ -376,7 +402,13 @@ function ImagesSection({
       setFile(null);
       onChanged();
     } catch (err) {
-      onError(err, "Couldn't upload this image. Use a JPEG, PNG, or WebP file.");
+      // Always show the REAL error now — a wrong-file-type rejection from
+      // the backend (400, "Only JPEG, PNG, or WebP files are accepted")
+      // and "the server never responded at all" (network/CORS/proxy
+      // failure) are completely different problems and need different
+      // messages; the fallback here only fires for a genuinely unexpected
+      // case that isn't either of those.
+      onError(err, "Something went wrong uploading this image. Please try again.");
     } finally {
       setUploading(false);
     }
@@ -406,7 +438,7 @@ function ImagesSection({
         <input
           type="file"
           accept="image/jpeg,image/png,image/webp"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          onChange={handleFileChange}
           className="text-sm"
         />
         <label className="flex items-center gap-1.5 text-sm text-gray-600">
@@ -415,12 +447,13 @@ function ImagesSection({
         </label>
         <button
           type="submit"
-          disabled={!file || uploading}
+          disabled={!file || !!sizeWarning || uploading}
           className="rounded bg-brand px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
         >
           {uploading ? "Uploading..." : "Upload"}
         </button>
       </form>
+      {sizeWarning && <p className="mt-2 text-sm text-red-600">{sizeWarning}</p>}
     </div>
   );
 }
