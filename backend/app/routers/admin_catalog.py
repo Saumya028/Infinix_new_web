@@ -346,6 +346,17 @@ async def upload_product_image(
     for width, webp_bytes in result["variants"].items():
         upload_bytes(f"{key_prefix}-{width}.webp", webp_bytes, "image/webp")
 
+    # A product's FIRST image is always primary, regardless of the
+    # checkbox the admin ticked (or forgot to tick). A product with images
+    # but none flagged primary is a broken state — the shop listing page
+    # (GET /products) looks up the primary image directly with no
+    # fallback, so it would silently show "No image" even though a
+    # perfectly good photo exists (only the product detail page has a
+    # fallback to "any image"). Forcing this here means that inconsistency
+    # can never occur for a newly-uploaded first image again.
+    is_first_image = not db.query(ProductImage).filter(ProductImage.product_id == product_id).first()
+    is_primary = is_primary or is_first_image
+
     if is_primary:
         db.query(ProductImage).filter(
             ProductImage.product_id == product_id, ProductImage.is_primary.is_(True)

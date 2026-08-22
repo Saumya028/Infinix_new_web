@@ -126,18 +126,32 @@ def list_products(
 
     rows = query.offset((page - 1) * page_size).limit(page_size).all()
 
-    # Batch-fetch primary images for exactly the products on this page
-    # (one extra query total, NOT one query per product — avoiding the
-    # classic "N+1 query" performance bug).
+    # Batch-fetch images for exactly the products on this page (one extra
+    # query total, NOT one query per product — avoiding the classic "N+1
+    # query" performance bug). We fetch ALL images per product, not just
+    # is_primary ones, so we can fall back to "the first image, in display
+    # order" for a product that has photos but none flagged primary — the
+    # same fallback the product detail page already uses. Without this
+    # fallback, a product could have a perfectly good image yet show
+    # "No image" on the shop listing while displaying fine on its own
+    # detail page — exactly the inconsistency that used to exist here.
     product_ids = [p.id for p, _, _, _ in rows]
     primary_images: dict[int, ProductImage] = {}
     if product_ids:
         img_rows = (
             db.query(ProductImage)
-            .filter(ProductImage.product_id.in_(product_ids), ProductImage.is_primary.is_(True))
+            .filter(ProductImage.product_id.in_(product_ids))
+            .order_by(ProductImage.product_id, ProductImage.is_primary.desc(), ProductImage.display_order)
             .all()
         )
-        primary_images = {img.product_id: img for img in img_rows}
+        for img in img_rows:
+            # First row we see per product_id (thanks to the ORDER BY
+            # above: is_primary DESC puts a true primary image first if
+            # one exists, otherwise the lowest display_order wins) is
+            # exactly the one we want — skip any further rows for a
+            # product_id we've already picked.
+            if img.product_id not in primary_images:
+                primary_images[img.product_id] = img
 
     items = []
     for p, min_price_paise, max_price_paise, total_stock in rows:
