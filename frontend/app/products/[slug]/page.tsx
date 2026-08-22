@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Image from "next/image";
-import { getProductBySlug } from "@/lib/api";
+import { getProductBySlug, ApiRequestError } from "@/lib/api";
 import { toThumbnailUrl } from "@/lib/imageUrl";
 import VariantSelector from "@/components/VariantSelector";
 
@@ -11,10 +11,22 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   let product;
   try {
     product = await getProductBySlug(slug);
-  } catch {
-    // A 404 from the backend (product not found / inactive) should render
-    // Next.js's built-in not-found page, not crash with an unhandled error.
-    notFound();
+  } catch (err) {
+    // Only a genuine 404 from the backend means "this product doesn't
+    // exist" — render Next.js's built-in not-found page for that. Any
+    // OTHER failure (backend unreachable, 500, timeout) is a completely
+    // different situation and showing "not found" would be actively
+    // misleading — the product might exist just fine, the backend is just
+    // down right now.
+    if (err instanceof ApiRequestError && err.status === 404) {
+      notFound();
+    }
+    console.error(`ProductDetailPage: failed to load "${slug}":`, err);
+    return (
+      <p className="py-16 text-center text-red-600">
+        We couldn&apos;t load this product right now. Please refresh in a moment.
+      </p>
+    );
   }
 
   const primaryImage = product.images.find((img) => img.is_primary) ?? product.images[0];
