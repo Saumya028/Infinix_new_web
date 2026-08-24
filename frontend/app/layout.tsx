@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import Header from "@/components/Header";
 import Providers from "./providers";
+import SiteChrome from "@/components/SiteChrome";
 
 export const metadata: Metadata = {
-  title: "Infinix",
-  description: "Personal care, made simple.",
+  title: "Infinix | Everyday Luxury Beauty",
+  description: "Fragrances, body sprays, powders, and nail colors crafted for those who dare to be unforgettable.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -13,8 +13,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <Providers>
-          <Header />
-          <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
+          <SiteChrome>{children}</SiteChrome>
         </Providers>
       </body>
     </html>

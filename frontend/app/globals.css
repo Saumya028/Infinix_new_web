@@ -1,8 +1,48 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;0,9..144,900;1,9..144,400;1,9..144,700&family=DM+Sans:wght@300;400;500;600;700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-body {
-  color: #111827;
-  background: #f9fafb;
+:root {
+  /* These back the `font-display` / `font-body` Tailwind utilities (see
+     tailwind.config.ts). Loaded via the @import above at runtime in the
+     browser rather than next/font's build-time fetch — next/font requires
+     reaching fonts.googleapis.com while `next build`/`next dev` runs,
+     which fails outright (and crashes the dev server into its error
+     overlay) on any machine or sandbox without outbound access to Google
+     at build time. A runtime @import instead just falls back to the
+     system serif/sans-serif below if the network isn't available, and
+     upgrades silently once it is — same visual result, far less fragile. */
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-body: 'DM Sans', system-ui, sans-serif;
 }
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-body), system-ui, sans-serif;
+  background-color: #FBF6EF;
+  color: #14161F;
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #FBF6EF;
+}
+::-webkit-scrollbar-thumb {
+  background: #FF6B4A;
+  border-radius: 3px;
+}
+
+/* Hide scrollbar inside horizontal scrollers (product rails, etc.) */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

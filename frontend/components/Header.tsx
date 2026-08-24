@@ -10,17 +10,19 @@ export default function Header() {
   const itemCount = cart.items.reduce((sum, i) => sum + i.quantity, 0);
 
   return (
-    <header className="sticky top-0 z-10 border-b border-gray-200 bg-white/95 backdrop-blur">
+    <header className="sticky top-0 z-10 border-b border-ink/10 bg-cream/95 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-        <Link href="/" className="text-lg font-bold text-brand">Infinix</Link>
+        <Link href="/" className="font-display text-lg font-bold tracking-wide text-ink">
+          INFINIX
+        </Link>
 
-        <nav className="flex items-center gap-6 text-sm text-gray-600">
-          <Link href="/products" className="hover:text-brand">Shop</Link>
+        <nav className="flex items-center gap-6 text-sm text-ink/70">
+          <Link href="/products" className="transition-colors hover:text-coral">Shop</Link>
 
-          <Link href="/cart" className="relative hover:text-brand" aria-label="Cart">
+          <Link href="/cart" className="relative transition-colors hover:text-coral" aria-label="Cart">
             <span>Cart</span>
             {itemCount > 0 && (
-              <span className="absolute -right-3 -top-2 flex h-4 w-4 items-center justify-center rounded-full bg-brand text-[10px] font-semibold text-white">
+              <span className="absolute -right-3 -top-2 flex h-4 w-4 items-center justify-center rounded-full bg-coral text-[10px] font-semibold text-white">
                 {itemCount}
               </span>
             )}
@@ -29,20 +31,23 @@ export default function Header() {
           {user ? (
             <div className="flex items-center gap-4">
               {["admin", "ops", "support"].includes(user.role) && (
-                <Link href="/admin/orders" className="hover:text-brand">Admin</Link>
+                <Link href="/admin/orders" className="transition-colors hover:text-coral">Admin</Link>
               )}
               {user.role === "delivery_partner" && (
-                <Link href="/delivery/orders" className="hover:text-brand">Deliveries</Link>
+                <Link href="/delivery/orders" className="transition-colors hover:text-coral">Deliveries</Link>
               )}
-              <Link href="/account/orders" className="hover:text-brand">
+              <Link href="/account/orders" className="transition-colors hover:text-coral">
                 {user.full_name.split(" ")[0]}
               </Link>
-              <button onClick={logout} className="text-gray-400 hover:text-brand">
+              <button onClick={logout} className="text-ink/40 transition-colors hover:text-coral">
                 Log out
               </button>
             </div>
           ) : (
-            <Link href="/login" className="rounded bg-brand px-3 py-1.5 text-white hover:bg-brand-dark">
+            <Link
+              href="/login"
+              className="rounded-full bg-ink px-4 py-1.5 text-white transition-colors hover:bg-coral"
+            >
               Log in
             </Link>
           )}
